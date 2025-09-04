@@ -13,6 +13,12 @@ func NodeWrite(data [][]string, resourceType []string, outType bool) {
 	table := table(outType)
 	var header []string
 	header = append(header, "NODE")
+	
+	// 如果没有指定资源类型，使用默认的全部类型
+	if len(resourceType) == 0 {
+		resourceType = []string{"cpu", "memory", "gpu", "pod"}
+	}
+	
 	for _, t := range resourceType {
 		switch {
 		case t == "cpu":
@@ -25,8 +31,7 @@ func NodeWrite(data [][]string, resourceType []string, outType bool) {
 			)
 		case t == "gpu":
 			header = append(header,
-				"NVIDIA/GPU REQ", "NVIDIA/GPU REQ(%)", "NVIDIA/GPU LIM", "NVIDIA/GPU LIM(%)",
-				// "ALIYUN/GPU-MEM REQ", "ALIYUN/GPU-MEM REQ(%)", "ALIYUN/GPU-MEM LIM", "ALIYUN/GPU-MEM LIM(%)",
+				"NVIDIA/GPU REQ", "NVIDIA/GPU REQ(%)", "NVIDIA/GPU LIM", "NVIDIA/GPU LIM(%)", "GPU MODEL",
 			)
 		case t == "pod":
 			header = append(header,
@@ -37,7 +42,6 @@ func NodeWrite(data [][]string, resourceType []string, outType bool) {
 				"CPU USE", "CPU REQ", "CPU REQ(%)", "CPU LIM", "CPU LIM(%)",
 				"MEM USE", "MEM REQ", "MEM REQ(%)", "MEM LIM", "MEM LIM(%)",
 				"NVIDIA/GPU REQ", "NVIDIA/GPU REQ(%)", "NVIDIA/GPU LIM", "NVIDIA/GPU LIM(%)",
-				// "ALIYUN/GPU-MEM REQ", "ALIYUN/GPU-MEM REQ(%)", "ALIYUN/GPU-MEM LIM", "ALIYUN/GPU-MEM LIM(%)",
 				"PodCount (%)",
 			)
 		}
@@ -52,11 +56,9 @@ func NodeWrite(data [][]string, resourceType []string, outType bool) {
 
 //PodWrite
 func PodWrite(data [][]string, resourceType []string, outType bool) {
-	//var table *tablewriter.Table
-
 	table := table(outType)
 	var header []string
-	header = append(header, "NAMESPACE", "POD NAME")
+	header = append(header, "NAMESPACE", "POD NAME", "NODE")
 
 	for _, t := range resourceType {
 		switch {
@@ -70,15 +72,13 @@ func PodWrite(data [][]string, resourceType []string, outType bool) {
 			)
 		case t == "gpu":
 			header = append(header,
-				"NVIDIA/GPU REQ", "NVIDIA/GPU LIM",
-				// "ALIYUN/GPU-MEM REQ", "ALIYUN/GPU-MEM LIM",
+				"GPU REQ", "GPU REQ(%)", "GPU LIM", "GPU LIM(%)", "GPU MODEL",
 			)
 		default:
 			header = append(header,
 				"CPU USE ", "CPU USE(%)", "CPU REQ", "CPU LIM",
 				"MEM USE", "MEM USE(%)", "MEM REQ", "MEM LIM",
-				"NVIDIA/GPU REQ", "NVIDIA/GPU LIM",
-				// "ALIYUN/GPU-MEM REQ", "ALIYUN/GPU-MEM LIM",
+				"GPU REQ", "GPU REQ(%)", "GPU LIM", "GPU LIM(%)", "GPU MODEL",
 			)
 		}
 	}

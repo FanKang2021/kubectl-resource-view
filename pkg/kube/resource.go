@@ -5,6 +5,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/kubectl/pkg/metricsutil"
 	metricsapi "k8s.io/metrics/pkg/apis/metrics"
+	"strings"
+	"k8s.io/apimachinery/pkg/labels"
 )
 
 // CPUResources describes node allocated resources.
@@ -96,6 +98,9 @@ type GPUResources struct {
 
 	// AliyunGpuMemCapacity is maximum number of pods, that can be allocated on the node.
 	AliyunGpuMemCapacity int64 `json:"aliyunGpuMemCapacity"`
+
+	// GPUModel stores the specific GPU model resource name (e.g. nvidia.com/gpu-h100)
+	GPUModel string `json:"gpuModel"`
 }
 
 // NodeAllocatedResources describes node allocated resources.
@@ -137,6 +142,15 @@ type PodAllocatedResources struct {
 
 	// NvidiaGpuCountsLimits is defined NvidiaGpuCounts limit.
 	NvidiaGpuCountsLimits int64
+
+	// NvidiaGpuUsage represents the current GPU usage
+	NvidiaGpuUsage int64
+
+	// NvidiaGpuUsageFraction represents the GPU usage percentage
+	NvidiaGpuUsageFraction float64
+
+	// GPUModel represents the GPU model being used
+	GPUModel string
 
 	// AliyunGpuMemRequests is a fraction of AliyunGpuMem, that is allocated.
 	AliyunGpuMemRequests int64
@@ -180,18 +194,27 @@ func getPodMetrics(m *metricsapi.PodMetrics) v1.ResourceList {
 		podMetrics[res], _ = resource.ParseQuantity("0")
 	}
 
+	// Add GPU resource type
+	podMetrics[ResourceNvidiaGpuCounts], _ = resource.ParseQuantity("0")
+
 	for _, c := range m.Containers {
-		for _, res := range metricsutil.MeasuredResources {
-			quantity := podMetrics[res]
-			quantity.Add(c.Usage[res])
-			podMetrics[res] = quantity
+		for resourceName, value := range c.Usage {
+			if strings.HasPrefix(string(resourceName), "nvidia.com/gpu") {
+				quantity := podMetrics[ResourceNvidiaGpuCounts]
+				quantity.Add(value)
+				podMetrics[ResourceNvidiaGpuCounts] = quantity
+			} else {
+				quantity := podMetrics[resourceName]
+				quantity.Add(value)
+				podMetrics[resourceName] = quantity
+			}
 		}
 	}
 	return podMetrics
 }
 
 //getNodeAllocatedResources https://github.com/kubernetes/dashboard/blob/d386ff60597b6eab0222f2c3c4aecf8e49b3014e/src/app/backend/resource/node/detail.go\#L171
-func getNodeAllocatedResources(node v1.Node, podList *v1.PodList, nodeMetricsList *metricsapi.NodeMetricsList, resourceType string) (NodeAllocatedResources, error) {
+func getNodeAllocatedResources(node v1.Node, podList *v1.PodList, nodeMetricsList *metricsapi.NodeMetricsList, resourceType string, selector labels.Selector) (NodeAllocatedResources, error) {
 	reqs, limits := map[v1.ResourceName]resource.Quantity{}, map[v1.ResourceName]resource.Quantity{}
 
 	for _, pod := range podList.Items {
@@ -279,34 +302,59 @@ func getNodeAllocatedResources(node v1.Node, podList *v1.PodList, nodeMetricsLis
 			},
 		}
 	case resourceType == "gpu":
-		_nvidiaGpuCountsRequests, _nvidiaGpuCountsLimits := reqs[ResourceNvidiaGpuCounts], limits[ResourceNvidiaGpuCounts]
-		nvidiaGpuCountsRequests := _nvidiaGpuCountsRequests.Value()
-		nvidiaGpuCountsLimits := _nvidiaGpuCountsLimits.Value()
-		nvidiaGpuCountsCapacity := NewGpuResource(ResourceNvidiaGpuCounts, &capacity).Value()
+		// 查找所有 nvidia.com/gpu 开头的资源
+		var totalRequests, totalLimits, totalCapacity int64
+		var gpuModels []string
 
-		// _aliyunGpuMemRequests, _aliyunGpuMemLimits := reqs[ResourceAliyunGpuMem], limits[ResourceAliyunGpuMem]
-		// aliyunGpuMemRequests := _aliyunGpuMemRequests.Value()
-		// aliyunGpuMemLimits := _aliyunGpuMemLimits.Value()
-		// aliyunGpuMemCapacity := NewGpuResource(ResourceAliyunGpuMem, &capacity).Value()
+		for resourceName := range capacity {
+			if strings.HasPrefix(string(resourceName), "nvidia.com/gpu") {
+				if req, ok := reqs[resourceName]; ok {
+					totalRequests += req.Value()
+				}
+				if lim, ok := limits[resourceName]; ok {
+					totalLimits += lim.Value()
+				}
+				if cap, ok := capacity[resourceName]; ok {
+					totalCapacity += cap.Value()
+				}
+				gpuModels = append(gpuModels, string(resourceName))
+			}
+		}
 
 		nodeAllocatedResources = NodeAllocatedResources{
 			CPUResources{},
 			MemoryResources{},
 			GPUResources{
-				NvidiaGpuCountsRequests:         nvidiaGpuCountsRequests,
-				NvidiaGpuCountsRequestsFraction: calcPercentage(nvidiaGpuCountsRequests, nvidiaGpuCountsCapacity),
-				NvidiaGpuCountsLimits:           nvidiaGpuCountsLimits,
-				NvidiaGpuCountsLimitsFraction:   calcPercentage(nvidiaGpuCountsLimits, nvidiaGpuCountsCapacity),
-				NvidiaGpuCountsCapacity:         nvidiaGpuCountsCapacity,
-				// AliyunGpuMemRequests:            aliyunGpuMemRequests,
-				// AliyunGpuMemRequestsFraction:    calcPercentage(aliyunGpuMemRequests, aliyunGpuMemCapacity),
-				// AliyunGpuMemLimits:              aliyunGpuMemLimits,
-				// AliyunGpuMemLimitsFraction:      calcPercentage(aliyunGpuMemLimits, aliyunGpuMemCapacity),
-				// AliyunGpuMemCapacity:            aliyunGpuMemCapacity,
+				NvidiaGpuCountsRequests:         totalRequests,
+				NvidiaGpuCountsRequestsFraction: calcPercentage(totalRequests, totalCapacity),
+				NvidiaGpuCountsLimits:           totalLimits,
+				NvidiaGpuCountsLimitsFraction:   calcPercentage(totalLimits, totalCapacity),
+				NvidiaGpuCountsCapacity:         totalCapacity,
+				GPUModel:                        strings.Join(gpuModels, ","),
 			},
 			PodResources{},
 		}
 	default:
+		// 默认视图也需要计算 GPU 资源
+		var totalGPURequests, totalGPULimits, totalGPUCapacity int64
+		var gpuModels []string
+
+		// 计算 GPU 资源使用情况
+		for resourceName := range capacity {
+			if strings.HasPrefix(string(resourceName), "nvidia.com/gpu") {
+				if req, ok := reqs[resourceName]; ok {
+					totalGPURequests += req.Value()
+				}
+				if lim, ok := limits[resourceName]; ok {
+					totalGPULimits += lim.Value()
+				}
+				if cap, ok := capacity[resourceName]; ok {
+					totalGPUCapacity += cap.Value()
+				}
+				gpuModels = append(gpuModels, string(resourceName))
+			}
+		}
+
 		_cpuRequests, _cpuLimits, _memoryRequests, _memoryLimits := reqs[v1.ResourceCPU], limits[v1.ResourceCPU],
 			reqs[v1.ResourceMemory], limits[v1.ResourceMemory]
 		_cpuUsages, _memoryUsages := usageMetrics.Usage.Cpu().MilliValue(), usageMetrics.Usage.Memory().Value()
@@ -318,53 +366,33 @@ func getNodeAllocatedResources(node v1.Node, podList *v1.PodList, nodeMetricsLis
 		memoryUsages := NewMemoryResource(_memoryUsages)
 		memoryRequests := NewMemoryResource(_memoryRequests.Value())
 		memoryLimits := NewMemoryResource(_memoryLimits.Value())
-		podCapacity := capacity.Pods().Value()
-		podFraction := calcPercentage(int64(len(podList.Items)), podCapacity)
-
-		_nvidiaGpuCountsRequests, _nvidiaGpuCountsLimits := reqs[ResourceNvidiaGpuCounts], limits[ResourceNvidiaGpuCounts]
-		nvidiaGpuCountsRequests := _nvidiaGpuCountsRequests.Value()
-		nvidiaGpuCountsLimits := _nvidiaGpuCountsLimits.Value()
-		nvidiaGpuCountsCapacity := NewGpuResource(ResourceNvidiaGpuCounts, &capacity).Value()
-
-		// _aliyunGpuMemRequests, _aliyunGpuMemLimits := reqs[ResourceAliyunGpuMem], limits[ResourceAliyunGpuMem]
-		// aliyunGpuMemRequests := _aliyunGpuMemRequests.Value()
-		// aliyunGpuMemLimits := _aliyunGpuMemLimits.Value()
-		// aliyunGpuMemCapacity := NewGpuResource(ResourceAliyunGpuMem, &capacity).Value()
 
 		nodeAllocatedResources = NodeAllocatedResources{
 			CPUResources{
 				CPUUsages:           cpuUsages,
 				CPURequests:         cpuRequests,
-				CPURequestsFraction: cpuRequests.calcPercentage(capacity.Cpu()),
-				CPULimits:           cpuLimits,
-				CPULimitsFraction:   cpuLimits.calcPercentage(capacity.Cpu()),
-				CPUCapacity:         NewCpuResource(capacity.Cpu().MilliValue()),
+				CPURequestsFraction: calcPercentage(_cpuRequests.MilliValue(), capacity.Cpu().MilliValue()),
+				CPULimits:          cpuLimits,
+				CPULimitsFraction:  calcPercentage(_cpuLimits.MilliValue(), capacity.Cpu().MilliValue()),
+				CPUCapacity:        NewCpuResource(capacity.Cpu().MilliValue()),
 			},
 			MemoryResources{
 				MemoryUsages:           memoryUsages,
 				MemoryRequests:         memoryRequests,
-				MemoryRequestsFraction: memoryRequests.calcPercentage(capacity.Memory()),
-				MemoryLimits:           memoryLimits,
-				MemoryLimitsFraction:   memoryLimits.calcPercentage(capacity.Memory()),
-				MemoryCapacity:         NewMemoryResource(capacity.Memory().Value()),
+				MemoryRequestsFraction: calcPercentage(_memoryRequests.Value(), capacity.Memory().Value()),
+				MemoryLimits:          memoryLimits,
+				MemoryLimitsFraction:  calcPercentage(_memoryLimits.Value(), capacity.Memory().Value()),
+				MemoryCapacity:        NewMemoryResource(capacity.Memory().Value()),
 			},
 			GPUResources{
-				NvidiaGpuCountsRequests:         nvidiaGpuCountsRequests,
-				NvidiaGpuCountsRequestsFraction: calcPercentage(nvidiaGpuCountsRequests, nvidiaGpuCountsCapacity),
-				NvidiaGpuCountsLimits:           nvidiaGpuCountsLimits,
-				NvidiaGpuCountsLimitsFraction:   calcPercentage(nvidiaGpuCountsLimits, nvidiaGpuCountsCapacity),
-				NvidiaGpuCountsCapacity:         nvidiaGpuCountsCapacity,
-				// AliyunGpuMemRequests:            aliyunGpuMemRequests,
-				// AliyunGpuMemRequestsFraction:    calcPercentage(aliyunGpuMemRequests, aliyunGpuMemCapacity),
-				// AliyunGpuMemLimits:              aliyunGpuMemLimits,
-				// AliyunGpuMemLimitsFraction:      calcPercentage(aliyunGpuMemLimits, aliyunGpuMemCapacity),
-				// AliyunGpuMemCapacity:            aliyunGpuMemCapacity,
+				NvidiaGpuCountsRequests:         totalGPURequests,
+				NvidiaGpuCountsRequestsFraction: calcPercentage(totalGPURequests, totalGPUCapacity),
+				NvidiaGpuCountsLimits:           totalGPULimits,
+				NvidiaGpuCountsLimitsFraction:   calcPercentage(totalGPULimits, totalGPUCapacity),
+				NvidiaGpuCountsCapacity:         totalGPUCapacity,
+				GPUModel:                        strings.Join(gpuModels, ","),
 			},
-			PodResources{
-				AllocatedPods: len(podList.Items),
-				PodCapacity:   podCapacity,
-				PodFraction:   podFraction,
-			},
+			PodResources{},
 		}
 	}
 	return nodeAllocatedResources, nil
@@ -429,19 +457,48 @@ func getPodAllocatedResources(pod *v1.Pod, podmetric *metricsapi.PodMetrics, res
 			MemoryLimits:         memoryLimits,
 		}
 	case resourceType == "gpu":
-		_nvidiaGpuCountsRequests, _nvidiaGpuCountsLimits := reqs[ResourceNvidiaGpuCounts], limits[ResourceNvidiaGpuCounts]
-		nvidiaGpuCountsRequests := _nvidiaGpuCountsRequests.Value()
-		nvidiaGpuCountsLimits := _nvidiaGpuCountsLimits.Value()
+		// Get GPU requests and limits
+		var gpuRequests, gpuLimits int64
+		var gpuModel string
 
-		// _aliyunGpuMemRequests, _aliyunGpuMemLimits := reqs[ResourceAliyunGpuMem], limits[ResourceAliyunGpuMem]
-		// aliyunGpuMemRequests := _aliyunGpuMemRequests.Value()
-		// aliyunGpuMemLimits := _aliyunGpuMemLimits.Value()
+		// First check for nvidia.com/gpu resource
+		if req, ok := reqs[ResourceNvidiaGpuCounts]; ok {
+			gpuRequests = req.Value()
+		}
+		if lim, ok := limits[ResourceNvidiaGpuCounts]; ok {
+			gpuLimits = lim.Value()
+		}
+
+		// Then check for specific GPU model resources
+		for resourceName := range reqs {
+			if strings.HasPrefix(string(resourceName), "nvidia.com/gpu-") {
+				if req, ok := reqs[resourceName]; ok {
+					gpuRequests = req.Value()
+				}
+				if lim, ok := limits[resourceName]; ok {
+					gpuLimits = lim.Value()
+				}
+				gpuModel = strings.TrimPrefix(string(resourceName), "nvidia.com/gpu-")
+				break
+			}
+		}
+
+		// Get GPU usage from metrics
+		gpuUsage := int64(0)
+		gpuUsageFraction := float64(0)
+		if usage, ok := usageMetrics[ResourceNvidiaGpuCounts]; ok {
+			gpuUsage = usage.Value()
+			if gpuLimits > 0 {
+				gpuUsageFraction = calcPercentage(gpuUsage, gpuLimits)
+			}
+		}
 
 		podAllocatedResources = PodAllocatedResources{
-			NvidiaGpuCountsRequests: nvidiaGpuCountsRequests,
-			NvidiaGpuCountsLimits:   nvidiaGpuCountsLimits,
-			// AliyunGpuMemRequests:    aliyunGpuMemRequests,
-			// AliyunGpuMemLimits:      aliyunGpuMemLimits,
+			NvidiaGpuCountsRequests: gpuRequests,
+			NvidiaGpuCountsLimits:   gpuLimits,
+			NvidiaGpuUsage:          gpuUsage,
+			NvidiaGpuUsageFraction:  gpuUsageFraction,
+			GPUModel:                gpuModel,
 		}
 
 	default:

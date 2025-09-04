@@ -8,20 +8,15 @@ The resource command allows you to see the resource consumption for nodes or pod
 ```diff
 - This command requires Metrics Server to be correctly configured and working on the server
 ```
-
-
+# 魔改版，支持非标准GPU资源标签
+# By_FanKang2021
 ## Installation
 
-    go install github.com/bryant-rh/kubectl-resource-view@VERSION
-
-
-krew is submitting PR, and it is still being approved. After approval, it can be installed in the following way
-
-Use [krew](https://krew.sigs.k8s.io/) plugin manager to instal:
-
-    kubectl krew install resource-view
-    kubectl resource-view --help
-
+    git clone https://gitlab.datacanvas.com/AlayaNeW/ops/infraops.git
+    cd infraops/kubectl-resource-view
+    make
+    mv _output/kubectl-resource-view /usr/local/bin/kubectl-resource-view
+    chmod +x /usr/local/bin/kubectl-resource-view
 
 ## Usage
 ```bash
@@ -217,5 +212,4 @@ Apache 2.0. See [LICENSE](./LICENSE).
 ---
 
 This is not an official Google project.
-
 

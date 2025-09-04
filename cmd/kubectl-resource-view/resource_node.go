@@ -142,7 +142,12 @@ func (o ResourceNodeOptions) RunResourceNode() error {
 	var err error
 	selector := labels.Everything()
 	if len(o.Selector) > 0 {
-		selector, err = labels.Parse(o.Selector)
+		if strings.HasPrefix(o.Selector, "nvidia.com/gpu-") {
+			// 保持原始的 GPU 资源名称格式
+			selector = labels.Set{"nvidia.com/gpu-" + strings.TrimPrefix(o.Selector, "nvidia.com/gpu-"): ""}.AsSelector()
+		} else {
+			selector, err = labels.Parse(o.Selector)
+		}
 		if err != nil {
 			return err
 		}
@@ -157,9 +162,7 @@ func (o ResourceNodeOptions) RunResourceNode() error {
 
 	if !metricsAPIAvailable {
 		return errors.New("metrics API not available")
-
 	}
-	//ResourceType := strings.Split(o.ResourceType, ",")
 
 	// 添加context用于超时控制
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
