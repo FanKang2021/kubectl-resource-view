@@ -31,7 +31,7 @@ func NodeWrite(data [][]string, resourceType []string, outType bool) {
 			)
 		case t == "gpu":
 			header = append(header,
-				"NVIDIA/GPU REQ", "NVIDIA/GPU REQ(%)", "NVIDIA/GPU LIM", "NVIDIA/GPU LIM(%)", "GPU MODEL",
+				"NVIDIA/GPU REQ", "NVIDIA/GPU REQ(%)", "NVIDIA/GPU LIM", "NVIDIA/GPU LIM(%)", "GPU MODEL", "RDMA DEVICE",
 			)
 		case t == "pod":
 			header = append(header,
@@ -47,6 +47,7 @@ func NodeWrite(data [][]string, resourceType []string, outType bool) {
 		}
 	}
 	table.SetHeader(header)
+	
 	for _, i := range data {
 		table.Append(i)
 	}
@@ -107,5 +108,14 @@ func table(outType bool) *tablewriter.Table {
 		table.SetNoWhiteSpace(true)
 		return table
 	}
+	// 默认情况下显示边框和分隔线
+	table.SetBorder(true)
+	table.SetCenterSeparator("|")
+	table.SetColumnSeparator("|")
+	table.SetRowSeparator("-")
+	table.SetHeaderLine(true)
+	table.SetRowLine(true)  // 启用每行之间的分隔线
+	table.SetTablePadding(" ")
+	table.SetNoWhiteSpace(false)
 	return table
 }

@@ -220,12 +220,15 @@ func (k *KubeClient) GetNodeResources(ctx context.Context, resourceName string, 
 						newFormat(noderesource.MemoryLimits.String(), noderesource.MemoryCapacity.String()), float64ToString(noderesource.MemoryLimitsFraction),
 					)
 				case t == "gpu":
+					// 格式化RDMA设备信息，显示设备名和可分配数量
+					rdmaInfo := formatRDMADevices(noderesource.RDMADevices, noderesource.RDMACapacity)
 					resource = append(resource,
 						int64ToString(noderesource.NvidiaGpuCountsRequests),
 						float64ToString(noderesource.NvidiaGpuCountsRequestsFraction),
 						int64ToString(noderesource.NvidiaGpuCountsLimits),
 						float64ToString(noderesource.NvidiaGpuCountsLimitsFraction),
 						noderesource.GPUModel,
+						rdmaInfo,
 					)
 				case t == "pod":
 					resource = append(resource,
@@ -591,6 +594,34 @@ func contains(slice []string, str string) bool {
 		}
 	}
 	return false
+}
+
+// formatRDMADevices 格式化RDMA设备信息，显示设备名和可分配数量
+func formatRDMADevices(rdmaDevices string, rdmaCapacity int64) string {
+	if rdmaDevices == "" || rdmaCapacity == 0 {
+		return "N/A"
+	}
+	
+	// 将设备列表按逗号分割
+	devices := strings.Split(rdmaDevices, ",")
+	if len(devices) == 0 {
+		return "N/A"
+	}
+	
+	// 计算每个设备的平均可分配数量
+	avgCapacity := rdmaCapacity / int64(len(devices))
+	
+	// 格式化输出：每个设备占一行
+	var formattedDevices []string
+	for _, device := range devices {
+		device = strings.TrimSpace(device)
+		if device != "" {
+			formattedDevices = append(formattedDevices, fmt.Sprintf("%s: %d", device, avgCapacity))
+		}
+	}
+	
+	// 使用换行符连接，而不是逗号
+	return strings.Join(formattedDevices, "\n")
 }
 
 //GetNodeByNodename

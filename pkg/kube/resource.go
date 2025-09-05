@@ -101,6 +101,24 @@ type GPUResources struct {
 
 	// GPUModel stores the specific GPU model resource name (e.g. nvidia.com/gpu-h100)
 	GPUModel string `json:"gpuModel"`
+
+	// RDMARequests is the number of RDMA devices requested
+	RDMARequests int64 `json:"rdmaRequests"`
+
+	// RDMARequestsFraction is the percentage of RDMA devices requested
+	RDMARequestsFraction float64 `json:"rdmaRequestsFraction"`
+
+	// RDMALimits is the number of RDMA devices limited
+	RDMALimits int64 `json:"rdmaLimits"`
+
+	// RDMALimitsFraction is the percentage of RDMA devices limited
+	RDMALimitsFraction float64 `json:"rdmaLimitsFraction"`
+
+	// RDMACapacity is the total number of RDMA devices available
+	RDMACapacity int64 `json:"rdmaCapacity"`
+
+	// RDMADevices stores the specific RDMA device resource names (e.g. rdma/rdma_shared_device_a)
+	RDMADevices string `json:"rdmaDevices"`
 }
 
 // NodeAllocatedResources describes node allocated resources.
@@ -321,6 +339,25 @@ func getNodeAllocatedResources(node v1.Node, podList *v1.PodList, nodeMetricsLis
 			}
 		}
 
+		// 查找所有 rdma/ 开头的资源
+		var totalRDMARequests, totalRDMALimits, totalRDMACapacity int64
+		var rdmaDevices []string
+
+		for resourceName := range capacity {
+			if strings.HasPrefix(string(resourceName), "rdma/") {
+				if req, ok := reqs[resourceName]; ok {
+					totalRDMARequests += req.Value()
+				}
+				if lim, ok := limits[resourceName]; ok {
+					totalRDMALimits += lim.Value()
+				}
+				if cap, ok := capacity[resourceName]; ok {
+					totalRDMACapacity += cap.Value()
+				}
+				rdmaDevices = append(rdmaDevices, string(resourceName))
+			}
+		}
+
 		nodeAllocatedResources = NodeAllocatedResources{
 			CPUResources{},
 			MemoryResources{},
@@ -331,6 +368,12 @@ func getNodeAllocatedResources(node v1.Node, podList *v1.PodList, nodeMetricsLis
 				NvidiaGpuCountsLimitsFraction:   calcPercentage(totalLimits, totalCapacity),
 				NvidiaGpuCountsCapacity:         totalCapacity,
 				GPUModel:                        strings.Join(gpuModels, ","),
+				RDMARequests:                    totalRDMARequests,
+				RDMARequestsFraction:            calcPercentage(totalRDMARequests, totalRDMACapacity),
+				RDMALimits:                      totalRDMALimits,
+				RDMALimitsFraction:              calcPercentage(totalRDMALimits, totalRDMACapacity),
+				RDMACapacity:                    totalRDMACapacity,
+				RDMADevices:                     strings.Join(rdmaDevices, ","),
 			},
 			PodResources{},
 		}
@@ -352,6 +395,25 @@ func getNodeAllocatedResources(node v1.Node, podList *v1.PodList, nodeMetricsLis
 					totalGPUCapacity += cap.Value()
 				}
 				gpuModels = append(gpuModels, string(resourceName))
+			}
+		}
+
+		// 计算 RDMA 资源使用情况
+		var totalRDMARequests, totalRDMALimits, totalRDMACapacity int64
+		var rdmaDevices []string
+
+		for resourceName := range capacity {
+			if strings.HasPrefix(string(resourceName), "rdma/") {
+				if req, ok := reqs[resourceName]; ok {
+					totalRDMARequests += req.Value()
+				}
+				if lim, ok := limits[resourceName]; ok {
+					totalRDMALimits += lim.Value()
+				}
+				if cap, ok := capacity[resourceName]; ok {
+					totalRDMACapacity += cap.Value()
+				}
+				rdmaDevices = append(rdmaDevices, string(resourceName))
 			}
 		}
 
@@ -391,6 +453,12 @@ func getNodeAllocatedResources(node v1.Node, podList *v1.PodList, nodeMetricsLis
 				NvidiaGpuCountsLimitsFraction:   calcPercentage(totalGPULimits, totalGPUCapacity),
 				NvidiaGpuCountsCapacity:         totalGPUCapacity,
 				GPUModel:                        strings.Join(gpuModels, ","),
+				RDMARequests:                    totalRDMARequests,
+				RDMARequestsFraction:            calcPercentage(totalRDMARequests, totalRDMACapacity),
+				RDMALimits:                      totalRDMALimits,
+				RDMALimitsFraction:              calcPercentage(totalRDMALimits, totalRDMACapacity),
+				RDMACapacity:                    totalRDMACapacity,
+				RDMADevices:                     strings.Join(rdmaDevices, ","),
 			},
 			PodResources{},
 		}

@@ -1,14 +1,14 @@
 # kubectl resource-view
 A plugin to access Kubernetes resource requests, limits, and usage.
 
-Display Resource (CPU/Memory/Gpu/PodCount) Usage and Request and Limit.
+Display Resource (CPU/Memory/Gpu/RDMA/PodCount) Usage and Request and Limit.
 
 The resource command allows you to see the resource consumption for nodes or pods.
 
 ```diff
 - This command requires Metrics Server to be correctly configured and working on the server
 ```
-# 魔改版，支持非标准GPU资源标签
+# 魔改版，支持非标准GPU资源标签和RDMA设备信息
 # By_FanKang2021
 ## Installation
 
@@ -64,6 +64,9 @@ Examples:
 
   # Show metrics for the node defined by type name=cpu,memory,gpu,pod
   kubectl resource-view node -t cpu,memory,gpu,pod
+  
+  # Show GPU and RDMA device information
+  kubectl resource-view node -t gpu
 
 Flags:
   -h, --help              help for node
@@ -160,6 +163,29 @@ Example (Support similar kubectl format display):
 ```
 
 ![example Kubernetes similar kubectl format display](assets/demo-node-6.png)
+
+### GPU and RDMA Device Support
+
+The tool now supports displaying RDMA device information alongside GPU resources. When using `-t gpu`, the output will include:
+
+- **NVIDIA/GPU REQ**: Number of NVIDIA GPUs requested
+- **NVIDIA/GPU REQ(%)**: Percentage of GPUs requested
+- **NVIDIA/GPU LIM**: Number of NVIDIA GPUs limited
+- **NVIDIA/GPU LIM(%)**: Percentage of GPUs limited
+- **GPU MODEL**: GPU model (e.g., nvidia.com/gpu-h200)
+- **RDMA DEVICE**: Available RDMA devices with capacity (displayed vertically, column width auto-adjusts):
+  ```
+  rdma/rdma_shared_device_a: 63
+  rdma/rdma_shared_device_b: 63
+  rdma/rdma_shared_device_c: 63
+  ```
+
+Example output for GPU and RDMA resources:
+```bash
+kubectl resource-view node -t gpu
+```
+
+This will show both GPU and RDMA device information for nodes that have these resources configured. The RDMA DEVICE column displays each device with its available capacity in a vertical list format. The table includes row separators for better readability.
 
 ### pod
 
